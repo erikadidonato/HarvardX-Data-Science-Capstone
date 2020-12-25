@@ -1,0 +1,922 @@
+---
+title: "Gender Parity Machine Learning Model"
+author: "Erika Di Donato"
+date: "20/12/2020"
+output: 
+  pdf_document:
+    number_sections: true
+    toc: true
+    df_print: kable
+    highlight: zenburn
+    fig_crop: no
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	error = FALSE,
+	message = FALSE,
+	warning = FALSE, 
+	tidy.opts = list(width.cutoff = 60),tidy = TRUE
+)
+```
+\newpage
+# Introduction
+
+Gender parity, which is critical for the development and prosperity of all economies, refers to the proportional representation of men and women in society.
+
+The World Economic Forum (WEF) publishes an annual Gender Gap Report assigning an index and rank to each country. These metrics are meant to measure relative gaps in four key areas: health, education, economics and politics.
+
+As an annual report, it can guage progress and create global awareness of the challenges that emerge from those gender gaps.
+
+According to the World Economic Forum Global Gender Gap Report of 2020, gender parity will not be attained for another 99.5 years.
+
+## Goal of the Project
+
+The goal of this project is to create a machine learning model combining the WEF Gender Gap Data with other global indicators to predict the Gender Gap Score and better reveal why gender dispartities still exist.
+
+By taking a more granular approach, we should be able to further analyze contributing factors to this imbalance and hightlight opportunities for investment towards narrowing the gap.
+
+## Dataset and Variables
+
+### Global_Gender_Gap_2013
+
+Our first dataset to consider is the WEF Global Gender Gap Report of 2013. It contains 136 observations with the following 12 variables:
+
++ Country (136 Countries Represented)
++ ISO3
++ Overall Rank
++ Overall Score
++ Economic Participation and Opportunity Rank
++ Economic Participation and Opportunity Score
++ Educational Attainment Rank
++ Educational Attainment Score
++ Health and Survival Rank
++ Health and Survival Score
++ Political Empowerment Rank
++ Political Empowerment Score
+
+### Population_Indicators
+
+The Population_Indicators dataset consists of 4984 observations on Population annual rate of increase (percent), Total fertility rate (children per women), Infant mortality for both sexes (per 1,000 live births), Maternal mortality ratio (deaths per 100,000 population), Life expectancy at birth for both sexes (years), Life expectancy at birth for males (years), Life expectancy at birth for females (years), between 2010 and 2020 with the following 7 variables:
+
++ Region/Country/Area (numeric identifier)
++ X (Name of Region/Country/Area)
++ Year
++ Series
++ Value
++ Footnotes (Data refers to a 5-year period preceding the reference year.)
++ Source
+
+### Ratio_of_girls_to_boys_in_school
+
+This dataset reports 2921 observations on the Ratio of girls to boys in primary, secondary, and tertiary education between 1995 and 2018 across the world with the following 7 variables: 
+
++ Region/Country/Area (numeric identifier)
++ X (Name of Region/Country/Area)
++ Year
++ Series
++ Value
++ Footnotes
++ Source
+
+### Seats_held_by_women_in_parliament
+
+This dataset contains national and regional data on Women in National Parliament between 2010 and 2020 with 1959 obeservations and the following 9 variables:
+
++ Region/Country/Area (numeric identifier)
++ X (Name of Region/Country/Area)
++ Year
++ Series
++ Last Election Date
++ Last Election Date footnote
++ Value
++ Footnotes
++ Source
+
+## Key Steps
+
+Our datasets were downloaded, combined and divided into the following subsets:
+
++ Training Set 58.8%
++ Testing Set 20.6% (used for assessing training models)
++ Validation Set 20.6% (final hold-out test set)
+
+These ratios were chosen to:
+
++ Ensure the distributions in the test and validation sets are similar to the training set
++ Mitigate the inherent risk with smaller datasets of overfitting our model
+
+Once our dataset was split, we cleaned, transformed and ran imputations for missing data.
+
+We then performed some data exploration and created visualizations to gain further insights into the data.
+
+In this exploration we checked for outliers, multicollinearity, and heteroskedasticity.
+
+These steps led us to a modelling structure in which we trained our data on the 58.6% of data and tested on 20.6%.
+
+Models included:
+
++ Naive (as a baseline) $y_i = \mu + \epsilon_i$
++ Linear Regression $y = \mu + b_{1} + b_{2} + ...+ b_{n} +  \epsilon_i$
++ Recurssive Partitioning Model (rpart)
++ Random Forest Model
+
+Once we identified our best-performing model, we tuned it and validated the results on our final 20.6% of data.
+
+These results and model performance were evaluated using the RMSE (root-mean-square error) which measures the error of a model in predicting quantitative data.
+
+$$RMSE(g) = \sqrt{ \frac{1}{n} \sum_{i = 1..n}(y_i - g(x_i))^2 }$$
+
+# Methods/Analysis
+
+Our process begins with the file download, environment setup, and dataset creation.
+
+```{r Download, echo = FALSE}
+# Download packages
+if(!require(tidyverse)) install.packages("tidyverse",
+                                         repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table",
+                                          repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("lattice",
+                                          repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("mice", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("ggcorrplot", 
+                                     repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("Rcpp", 
+                                     repos = "http://cran.us.r-project.org")
+
+library(Rcpp)
+library(tidyverse)
+library(caret)
+library(data.table)
+library(randomForest)
+library(lubridate)
+library(corrplot)
+library(ggplot2)
+library(readxl)
+library(dslabs)
+library(knitr)
+library(tinytex)
+library(magrittr)
+library(reshape2)
+library(lattice)
+library(mice)
+library(ggcorrplot)
+library(rpart.plot)
+
+
+
+
+# Download 2013 Gender Gap Report
+urlHum  <- "https://data.humdata.org/dataset/"
+pathH1 <- "29f2f52f-a9c2-4ff9-a99e-42b894dc18e9/resource/"
+pathH2 <- "a8fe8c72-1359-4ce3-b8cc-03d9e5e85875/download/"
+fileGGG <- "table-3b-detailed-rankings-2013.csv"
+
+Global_Gender_Gap_2013 <- paste0(urlHum, pathH1, pathH2, fileGGG) %>% read.csv()
+
+rm(urlHum, pathH1, pathH2, fileGGG)
+
+# Download UN Reports
+urlRemoteUN <- "https://data.un.org/_Docs/SYB/CSV/"
+
+filePop <-
+  "SYB62_246_201907_Population%20Growth,%20Fertility%20and%20Mortality%20Indicators.csv"
+Population_Indicators <- paste0(urlRemoteUN, filePop) %>%
+    read.csv(skip = 1)
+
+fileRat <- "SYB63_319_202009_Ratio%20of%20Girls%20to%20Boys%20in%20Education.csv"
+Ratio_of_girls_to_boys_in_school <- paste0(urlRemoteUN, fileRat) %>%
+    read.csv(skip = 1)
+
+filePar <- "SYB63_317_202009_Seats%20held%20by%20Women%20in%20Parliament.csv"
+Seats_held_by_women_in_parliament <- paste0(urlRemoteUN, filePar) %>%
+    read.csv(skip = 1)
+
+rm(urlRemoteUN, filePop, fileRat, filePar)
+```
+
+We wanted to create our own combined dataset from the 3 separate UN files to later join with the Global Gender Gap File.
+
+On inspection, we observe there are reporting gaps in the UN files so we use the average of the years 2010-2015, before combining them to our Gender Gap file. This time period was chosen to reflect the relative socio-political climate of 2013 and recognizes some of these features could be either leading or lagging indicators.
+
+Also note, we have created a unique dataset in this setup.
+
+```{r UN Histograms, echo = FALSE, fig.show = "hold", out.width = "33%"}
+# Histogram of Population_Indicators
+Population_Indicators %>%
+  ggplot(aes(Year)) +
+  geom_histogram(binwidth = 0.5, fill = I("dodgerblue"), col = I("black")) +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Population Indicators") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Histogram of Ratio_of_girls_to_boys_in_school
+Ratio_of_girls_to_boys_in_school %>%
+  ggplot(aes(Year)) +
+  geom_histogram(binwidth = 0.5, fill = I("orange"), col = I("black")) +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Ratio of Girls to Boys in School") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Histogram of Women_in_parliament
+Seats_held_by_women_in_parliament %>%
+  ggplot(aes(Year)) +
+  geom_histogram(binwidth = 0.5, fill = I("red"), col = I("black")) +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Women in Parliament") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r UN Reformatting, echo = FALSE}
+# Population Indicators reformatting
+PopInd <- Population_Indicators[, -c(1, 6, 7)] %>% filter(Year >= 2010 & Year <= 2015)
+PopIndMean <- aggregate(x = PopInd$Value,
+          by = list(PopInd$X,PopInd$Series),
+          FUN = mean)
+PopT <- dcast(PopIndMean,Group.1 ~ Group.2,value.var = "x") %>% rename(Country = Group.1)
+
+# Ratio_of_girls_to_boys_in_school reformatting
+RatioGtB <- Ratio_of_girls_to_boys_in_school[, -c(1, 6, 7)] %>% 
+    filter(Year >= 2010 & Year <= 2015)
+RatioGtBMean <- aggregate(x = RatioGtB$Value,
+          by = list(RatioGtB$X,RatioGtB$Series),
+          FUN = mean)
+RatioGtBT <- dcast(RatioGtBMean,Group.1 ~ Group.2,value.var = "x") %>% 
+    rename(Country = Group.1)
+
+# Seats_held_by_women_in_parliament reformatting
+WomnInParl <- Seats_held_by_women_in_parliament[, c(2, 3, 4, 7)] %>% 
+    filter(Year >= 2010 & Year <= 2015)
+WomnInParlMean <- aggregate(x = WomnInParl$Value,
+          by = list(WomnInParl$X,WomnInParl$Series),
+          FUN = mean)
+WomnInParlT <- dcast(WomnInParlMean,Group.1 ~ Group.2,value.var = "x") %>% 
+    rename(Country = Group.1)
+
+# Combine the 3 UN tables
+UNstatsA <- full_join(PopT, RatioGtBT, by = "Country")
+UNstats <- full_join(UNstatsA, WomnInParlT, by = "Country")
+
+# Synchronize Country names between the UN table and the Global_Gender_Gap_2013 report
+CountryString <- as.character(UNstats$Country)
+CountryString <- replace(CountryString, 7,"Angola*")
+CountryString <- replace(CountryString, 27,"Bhutan*")
+CountryString <- replace(CountryString, 28,"Bolivia")
+CountryString <- replace(CountryString, 38,"Cape Verde")
+CountryString <- replace(CountryString, 58,"C»te d'Ivoire")
+CountryString <- replace(CountryString, 63,"Czech Republic")
+CountryString <- replace(CountryString, 111,"Iran, Islamic Rep.")
+CountryString <- replace(CountryString, 124,"Kyrgyz Republic")
+CountryString <- replace(CountryString, 189,"Korea, Rep.")
+CountryString <- replace(CountryString, 190,"Moldova")
+CountryString <- replace(CountryString, 212,"Slovak Republic")
+CountryString <- replace(CountryString, 232,"Syria")
+CountryString <- replace(CountryString, 250,"Tanzania")
+CountryString <- replace(CountryString, 251,"United States")
+CountryString <- replace(CountryString, 256,"Venezuela")
+CountryString <- replace(CountryString, 257,"Vietnam")
+
+Country_df <- as_tibble(CountryString)
+UNstats$Country <- as_factor(Country_df$value)
+
+# Left-join new UN table to the Global_Gender_Gap_2013 report
+# This creates our new, combined dataset
+GGG_2013 <- left_join(Global_Gender_Gap_2013, UNstats, by = "Country")
+
+rm(Country_df, CountryString, Global_Gender_Gap_2013, PopInd, PopIndMean, PopT,
+   Population_Indicators, Ratio_of_girls_to_boys_in_school, RatioGtB, RatioGtBMean,
+   RatioGtBT, Seats_held_by_women_in_parliament, UNstats, UNstatsA, WomnInParl,
+   WomnInParlMean, WomnInParlT)
+```
+
+## Process
+Now that we have one combined file (GGG_2013), we split it into our training, test, and validation sets.
+
+```{r Split, echo = TRUE}
+# Validation set will be 20.6% of GGG_2013 data (p = .2 achieves this due to rounding)
+set.seed(3, sample.kind = "Rounding") # if using R 3.5 or earlier, use `set.seed(3)`
+val_index <- createDataPartition(
+  y = GGG_2013$Overall.Score, times = 1, p = 0.2, list = FALSE)
+training_master <- GGG_2013[-val_index,]
+temp <- GGG_2013[val_index,]
+
+# Make sure Overall.Score in validation set are also in GGG_2013 set
+validation <- temp %>% 
+      semi_join(GGG_2013, by = "Overall.Score")
+
+# Add rows removed from validation set back into GGG_2013 set
+removed <- anti_join(temp, validation)
+GGG_2013 <- rbind(GGG_2013, removed)
+
+rm(val_index, temp, removed)
+
+# Test set will be 20.6% of GGG_2013 data data (p = 0.25 of training_master achieves this)
+set.seed(5, sample.kind = "Rounding") # if using R 3.5 or earlier, use `set.seed(5)`
+test_index <- createDataPartition(
+  y = training_master$Overall.Score, times = 1, p = 0.25, list = FALSE)
+train <- training_master[-test_index,]
+temp <- training_master[test_index,]
+
+# Make sure Overall.Score in validation set are also in training_master set
+test <- temp %>% 
+      semi_join(training_master, by = "Overall.Score")
+
+# Add rows removed from vtest set back into training_master set
+removed <- anti_join(temp, test)
+training_master <- rbind(training_master, removed)
+
+rm(test_index, temp, removed, GGG_2013, training_master)
+```
+
+### Data Cleaning
+Let's observe the train set.
+
+```{r Summary Statistics, echo = TRUE}
+# Summary statistics
+dim(train)
+names(train)
+anyNA(train)
+```
+
+Our train set has 80 observations with 23 variables.
+Rank can be expressed as an ordered score and the ISO3 column doesn't give us any new information so we can remove those columns.
+
+```{r Reduce Columns, echo = FALSE}
+# Remove columns that do not add insights and summarize remaining columns
+train <- train[, -c(2, 3, 5, 7, 9, 11)]
+summary(train)
+```
+
+We will rename our columns, scale some of the observations,  and create some scatterplots to see if there is a meaningful way to treat our NA's (missing data).
+
+```{r Clean, echo = FALSE, fig.show = "hold", out.width = "50%"}
+# Rename columns
+names(train) [2] <- "Score"
+names(train)  [3] <- "EcoPart"
+names(train)  [4] <- "Edu"
+names(train)  [5] <- "Health"
+names(train)  [6] <- "Poli"
+names(train)  [7] <- "InfMortRt"
+names(train)  [8] <- "LifExpBoth"
+names(train)  [9] <- "LifExpFem"
+names(train) [10] <- "LifExpMal"
+names(train) [11] <- "MatMortRt"
+names(train) [12] <- "PopIncRt"
+names(train) [13] <- "TotFertRt"
+names(train) [14] <- "RatGtBPrim"
+names(train) [15] <- "RatGtBSec"
+names(train) [16] <- "RatGtBTer"
+names(train) [17] <- "WmnInParl"
+
+# Divide MatMortRt by 10 (now reflects Deaths per 10000 of the population)
+train$MatMortRt <-train$MatMortRt/10
+
+# Create scatterplots and regression lines for Indicators with missing values
+attach(train)
+plot(RatGtBPrim, Score, main = "Score ~ RatGtBPrim",
+   	xlab = "RatGtBPrim", ylab = "Score", pch = 19)
+	abline(lm(Score ~ RatGtBPrim), col ="red") # regression line (y~x)
+plot(RatGtBSec, Score, main = "Score ~ RatGtBSec",
+   	xlab = "RatGtBSec", ylab = "Score", pch = 19)
+	abline(lm(Score ~ RatGtBSec), col ="red") # regression line (y~x)
+plot(RatGtBTer, Score, main = "Score ~ RatGtBTer",
+   	xlab = "RatGtBTer", ylab = "Score", pch = 19)
+	abline(lm(Score ~ RatGtBTer), col ="red") # regression line (y~x)
+plot(WmnInParl, Score, main = "Score ~ WmnInParl",
+   	xlab = "WmnInParl", ylab = "Score", pch = 19)
+	abline(lm(Score ~ WmnInParl), col ="red") # regression line (y~x)
+```
+
+We observe a relationship between our Indicators and Score so when filling in the NA's, we use Stochastic Regression Imputation. This method uses the known data and adds a random error term to the predicted value. This reproduces our missing values better that just using Mean Imputation and minimizes overestimation of the correlation between values that can happen with Deterministic Regression Imputation.
+
+```{r Imputation, echo = TRUE}
+# Stochastic regression imputation
+imp <- mice(train, method = "norm", m = 1) # Impute data
+train <- complete(imp) # Store data
+
+# Check for any missing values
+anyNA(train)
+```
+
+### Data Exploration and Visualizations
+
+We now have a complete training dataset we can explore further.
+
+```{r Header, echo = TRUE}
+# Review new table statistics
+summary(train)
+```
+
+#### Outliers
+
+The following boxplots describe some of the variation in our data. We clearly have some outliers. Particularly in Chad with a very high Maternal Mortality rate of 94.6208 per 10,000 population (scaled).
+
+As a rule, outliers should only be removed if it suspected there are some errors with collecting, reporting, or processing the data. We have already scaled this column while we were cleaning the data so we will move on despite some datapoints residing well outside the range of the other values for the sample.
+
+```{r Boxplots, echo = FALSE, fig.show = "hold", out.width = "50%"}
+par(mar = c(6, 4, .1, .1))
+# Review boxplots
+boxplot(train[,2:6], col = c(
+  "darkolivegreen1","darkolivegreen4","darkolivegreen1","darkolivegreen4",
+  "darkolivegreen1"))
+mtext(1, text = "UN Data", line = 4.5)
+boxplot(train[,c(7, 11, 17)],  col = c(
+  "darkolivegreen1","darkolivegreen4","darkolivegreen1"))
+mtext(1, text = "Mortality Rates and Political Power", line = 4.5)
+boxplot(train[,8:10], col = c(
+	"darkolivegreen1","darkolivegreen4","darkolivegreen1"))
+mtext(1, text = "Life Expectancy", line = 4.5)
+boxplot(train[,c(12, 13)], col = c(
+	"darkolivegreen1","darkolivegreen4","darkolivegreen1"))
+mtext(1, text = "Population Growth and Fertility Rates", line = 4.5)
+boxplot(train[,14:16], col = c(
+	"darkolivegreen1","darkolivegreen4","darkolivegreen1"))
+mtext(1, text = "Ratio of Girls to Boys in School", line = 4.5)
+```
+
+#### Test for Multicollinearity
+
+First we examine the correlation in our data to check for multicollinearity.
+
+```{r Correlation Data, echo = TRUE}
+# Create correlation matrix: cordata
+cordata = train[,c(3:17)]
+corr <- round(cor(cordata), 3)
+corr
+```
+
+We can also observe these relationships more closely in a Correlation Matrix
+
+```{r Correlation Matrix, echo = FALSE}
+# Create Correlation Matrix
+M <- cor(corr)
+corrplot(M, method = "pie", order = "AOE")
+```
+
+The output above shows the presence of strong positive correlations between the:
+
++ Edu and RatGtBSec (positive)
++ InfMortRt and MatMortRt (positive)
++ InfMortRt and TotFertRt (positive))
++ LifExpBoth and LifExpFem (positive)
++ LifExpBoth and LifExpMal (positive)
++ LifExpFem and LifExpMal (positive)
++ MatMortRt and TotFertRt (positive)
+
+It also shows strong negative correlations between:
+
++ InfMortRt and LifExpBoth (negative)
++ InfMortRt and LifExpFem (negative)
++ InfMortRt and LifExpMal (negative)
++ LifExpBoth and MatMortRt (negative)
++ LifExpBoth and TotFertRt (negative)
++ LifExpFem and MatMortRt (negative)
++ LifExpFem and TotFertRt (negative)
+
+We'll plot the correlated data and keep these factors in mind when selecting features.
+
+```{r Correlations, echo = FALSE,  fig.show = "hold", out.width = "50%"}
+# Plot correlated data
+plot(Edu, RatGtBSec, data = train$full)
+plot(InfMortRt, MatMortRt, data = train$full)
+plot(InfMortRt, TotFertRt, data = train$full)
+plot(LifExpBoth, LifExpFem, data = train$full)
+plot(LifExpBoth, LifExpMal, data = train$full)
+plot(LifExpFem, LifExpMal, data = train$full)
+plot(MatMortRt, TotFertRt, data = train$full)
+plot(InfMortRt, LifExpBoth, data = train$full)
+plot(InfMortRt, LifExpFem, data = train$full)
+plot(InfMortRt, LifExpMal, data = train$full)
+plot(LifExpBoth, MatMortRt, data = train$full)
+plot(LifExpBoth, TotFertRt, data = train$full)
+plot(LifExpFem, MatMortRt, data = train$full)
+plot(LifExpFem, TotFertRt, data = train$full)
+```
+
+#### Test for Heteroskedasticity
+
+Heteroskedasticity occurs when the variance for all observations in a data set are not the same. Because it is a violation of the ordinary least square assumption there are two main consequences on the least squares estimators:
+
++ The least squares estimator is still a linear and unbiased estimator, but it is no longer best. That is, there is another estimator with a smaller variance.
++ The standard errors computed for the least squares estimators are incorrect. This can affect confidence intervals and hypothesis testing that use those standard errors, which could lead to misleading conclusions.
+
+We will test for heteroskedasticity by creating a residual plot of the least squares residuals against the explanatory variable. If there is an evident pattern in the plot, then heteroskedasticity is present.
+
+```{r Heteroskedasticity, echo = FALSE, out.width = "50%"}
+# Remove the Country column for this test
+train_noCountry <- train[, -1]
+
+# Run the test for heteroskedasticity and plot the residuals
+train_noCountry_ols <- lm(Score ~., data = train_noCountry)
+train_resi <- train_noCountry_ols$residuals
+ggplot(data = train_noCountry, aes(y = Score, x = train_resi)) + 
+  geom_point(col = 'blue') + geom_abline(slope = 0) +
+  ggtitle("Residuals") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+rm(train_noCountry_ols, train_resi)
+```
+
+There is no discernable pattern. We do not have to correct our data for heteroskedasticity.
+
+### Insights Gained
+
+Some of the relationships uncovered in the dataset are not suprising. For example, the strong negative correlation between Maternal Mortality Ratio and Life Expectancy at Birth for Females (0.966). We can easily agree that a direct cause of death for women would shorten their life expectancy.
+
+Other relationships were more interesting. Such as the high correlation between Total Fertility Rate with the Infant Mortality (0.907) and Maternal Mortatity (0.885) Rates. Could this be an indication that countries with more access to family planning also have better outcomes for infants and their mothers?
+
+The absence of stronger correlations in other areas also poses some questions. For instance, Health and Survival Scores with Political Empowerment (0.004), and Seats held by women in national parliament (0.054). Is something other than political participation preventing women from enacting change that could make a real difference?
+
+## Modelling
+
+In preparation for modelling, we 
+
++ Duplicate any transfortmations we performed in our training set on our test set
++ Define RMSE as our evaluation criteria
++ Define mu as the Score average
+
+```{r Model Preparation, echo = TRUE, include = FALSE}
+# Duplicate transfortmations on test set
+# Remove columns 
+test <- test[, -c(2, 3, 5, 7, 9, 11)]
+# Rename columns
+names(test) [2] <- "Score"
+names(test)  [3] <- "EcoPart"
+names(test)  [4] <- "Edu"
+names(test)  [5] <- "Health"
+names(test)  [6] <- "Poli"
+names(test)  [7] <- "InfMortRt"
+names(test)  [8] <- "LifExpBoth"
+names(test)  [9] <- "LifExpFem"
+names(test) [10] <- "LifExpMal"
+names(test) [11] <- "MatMortRt"
+names(test) [12] <- "PopIncRt"
+names(test) [13] <- "TotFertRt"
+names(test) [14] <- "RatGtBPrim"
+names(test) [15] <- "RatGtBSec"
+names(test) [16] <- "RatGtBTer"
+names(test) [17] <- "WmnInParl"
+# Divide MatMortRt by 10
+test$MatMortRt <- test$MatMortRt/10
+# Stochastic regression imputation
+imp_test <- mice(test, method = "norm", m = 1) # Impute data
+test <- complete(imp_test) # Store data
+
+# Remove country 
+test_noCountry <- test[, -1]
+
+
+# Define RMSE as our evaluation criteria
+RMSE <- function(true_Score, predicted_Score){
+  sqrt(mean((true_Score - predicted_Score)^2))
+}
+
+# Define mu as the Score average
+mu <- mean(train_noCountry$Score)
+mu
+
+rm(imp_test)
+```
+
+### Naive Forecast
+
+For the naive forecast, we simply set all forecasts to be the value of mean Score and assume all variation is due to random error.
+
+$$y_i = \mu + \epsilon_i$$
+
+```{r Naive Forecast, echo = TRUE}
+# Naive Forecast Based on Mean Rating
+RMSE_naive <- RMSE(test_noCountry$Score, mu)
+
+# Save results in a tibble
+RMSE_results = tibble(Method = "Naive Forecast", RMSE = RMSE_naive)
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+# Return model RMSE results
+RMSE_results
+```
+
+This is a very good result but the Naive Forecast really doesn't predict Country Scores very well. It just sets them all to the average without accounting for any variation in our data.
+
+### Linear Regression - Part 1 (All Variables)
+
+Linear regression is a basic and commonly used type of predictive analysis in which we measure the magnitude of the effects of our predictors.
+
+Our Regression Model is of the form:
+
+$$y = \mu + b_{1} + b_{2} + ...+ b_{n} +  \epsilon_i$$
+
+##### (All) Linear Regression Feature Selection
+
+Once defining our Model to include all variables, we can make some observations about the feature coefficients.
+
+Specifically, it appears that The Gender Gap Report weighs Economic Participation, Educational Attainment, Health and Survival, and Political Empowerment equally when determining the Overall Score.
+
+Our supplementary features from the UN don't add much additional variation to this formula.
+
+This is not suprising since the Score is calculated on the 4 WEF features.
+
+```{r LinearT Feature Selection, echo = TRUE}
+# Define the Linear Model
+train_lin <- train_noCountry
+
+linModel_formula = Score ~ .
+linModel <- lm(linModel_formula, data = train_lin)
+
+# Observe the coeffficients
+LinCoefficient <- round(summary(linModel)$coefficients, 5)
+LinCoefficient
+```
+
+##### (All) Linear Regression Training
+
+Once we reduce the dimensions to those with a p-VALUE < 0.05, we recognize this model doesn't offer any new information and would just returns the WEF score.
+
+```{r LinearT Model Final, echo = TRUE}
+# Define the Linear Model with Dimension Reduction
+train_lin <- train_noCountry
+linModel_formula = Score ~ EcoPart + Edu + Health + Poli
+linModel <- lm(linModel_formula, data = train_lin)
+
+# Observe the coeffficients
+LinCoefficient <- round(summary(linModel)$coefficients, 5)
+LinCoefficient
+```
+
+##### (All) Linear Regression Forecast on the Test Set
+
+Note: this is a Trivial Solution
+
+```{r Test LinearT Model, echo = TRUE}
+# Linear Model Forecast
+predicted_Score <- predict(linModel, test_noCountry)
+
+RMSE_model_LinearT <- RMSE(predicted_Score, test_noCountry$Score)
+
+# Save results in a tibble
+RMSE_results <- bind_rows(RMSE_results,
+                          tibble(Method = "Full Linear Model (Trivial Solution)",
+                          RMSE = RMSE_model_LinearT))
+
+# Return model RMSE results
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+RMSE_results
+```
+
+### Linear Regression - Part 2 (UN Data)
+
+What happens if we remove the WEF data and express our Scores as a function of only the UN data?
+
+#### (UN Data) Linear Regression Feature Selection
+
+By removing the WEF Variables we express Score as a function of only the UN data.
+
+```{r Define Linear Model, echo = TRUE}
+# Define the new Linear Model
+train_lin <- train_noCountry[, c(1, 6:16)]
+linModel_formula = Score ~.
+linModel <- lm(linModel_formula, data = train_lin)
+
+# Observe the coeffficients
+LinCoefficient <- round(summary(linModel)$coefficients, 5)
+LinCoefficient
+```
+
+#### (UN Data) Linear Regression Training
+
+Once we reduce the dimensions to remove the highly correlated data we can redefine the model with our training set.
+
+```{r Linear Model Final, echo = TRUE}
+# Define the new Linear Model with Dimension Reduction
+train_lin <- train_noCountry[, c(1, 6:16)]
+linModel_formula = Score ~ LifExpBoth + PopIncRt + RatGtBPrim + RatGtBTer
+linModel <- lm(linModel_formula, data = test_noCountry)
+
+# Observe the coeffficients
+LinCoefficient <- round(summary(linModel)$coefficients, 5)
+LinCoefficient
+```
+
+#### (UN Data) Linear Regression Forecast on the Test Set
+
+We can now run the linear regression model on the test set.
+
+```{r Test Linear Model, echo = TRUE}
+# New Linear Model Forecast
+predicted_Score <- predict(linModel, test_noCountry)
+
+RMSE_model_LinearUN <- RMSE(predicted_Score, test_noCountry$Score)
+
+# Save results in a tibble
+RMSE_results <- bind_rows(RMSE_results,
+                          tibble(Method = "Reduced Linear Model (UN Data)",
+                          RMSE = RMSE_model_LinearUN))
+
+# Return model RMSE results
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+RMSE_results
+```
+
+Our Reduced Linear Model performs better than the Naive Forecast.
+
+### Recursive Partitioning (rpart)
+
+Through recursive partitioning we create a regression tree that will further explore our data for important features and make decisions based on that information to split our observations. All the split points are based on one variable at a time.
+
+#### rpart Training
+
+Managing multicollinearity through feature selection is redundant with the rpart model. In a standard recursive partitioning tree that considers all predictors, each split is based on the most powerful predictor available.
+
+We construct the model will all variables as predictors.
+
+```{r Train rpart Model, echo = TRUE}
+# rpart Training
+train_rpart <- train_noCountry
+test_rpart <- test_noCountry
+set.seed(100)
+rpartMod <- train(Score ~ ., data = train_rpart, method = "rpart")
+rpartImp <- varImp(rpartMod)
+print(rpartImp)
+rpart.plot(rpartMod$finalModel)
+```
+
+#### rpart Forecast on the Test Set
+
+We can now run the rpart model on the test set.
+
+```{r Test rpart Model, echo = TRUE}
+# rpart Model Forecast
+predicted_Score <- predict(rpartMod$finalModel, test_rpart)
+
+RMSE_model_rpart <- RMSE(predicted_Score, test_rpart$Score)
+
+# Save results in a tibble
+RMSE_results <- bind_rows(RMSE_results,
+                          tibble(Method = "rpart Model",
+                          RMSE = RMSE_model_rpart))
+
+# Return model RMSE results
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+RMSE_results
+```
+
+While the Recursive Partitioning Model performed better than the Naive Model, it did not perform as well as our Reduced Linear Model (UN Data).
+
+### Random Forest
+
+The next model to consider is the Random Forest Model. It is based on generating a large number of decision trees (default = 500), each constructed using a different subset of our training set.
+
+#### Random Forest Training
+
+While there could be traces of the impacts of collinearity in this model, the way it uses feature importance over a large number of decision trees will mitigate this risk.
+
+Our training model is initially defined as using all the possible input variables (mtry = seq(1:15)) to create our decision trees and we can observe the RMSE-minimizing mtry from the model output.
+
+```{r Define Random Forest Model, echo = TRUE}
+# Define Random Forest Model
+set.seed(7, sample.kind = "Rounding")
+
+fit_rtree <- train(Score ~., data = train_noCountry, method = "rf",
+                        tuneGrid = data.frame(mtry = seq(1:15)), importance = TRUE)
+print(fit_rtree)
+
+imp <- varImp(fit_rtree)
+imp
+
+plot(fit_rtree$results$mtry, fit_rtree$results$RMSE, main = "RMSE-minimizing mtry")
+```
+
+#### Random Forest Tuning and Testing
+
+Now that we have observed an optimal mtry = 10, we create the final predictive model and run it on our test set.
+
+```{r Tune and Test Random Forest Model, echo = TRUE}
+# Tune and Test Random Forest Model
+fit_rtree2 <- train(Score ~., data = train_noCountry, method = "rf",
+                        tuneGrid = data.frame(mtry = 10), importance = TRUE)
+
+predicted_Score <- predict(fit_rtree2, test_noCountry)
+
+
+RMSE_model_rtree2 <- RMSE(predicted_Score, test$Score)
+
+# Save results in a tibble
+RMSE_results <- bind_rows(RMSE_results,
+                          tibble(Method = "Random Forest Model",
+                          RMSE = RMSE_model_rtree2))
+
+# Return model RMSE results
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+RMSE_results
+```
+
+## Model Results
+
+Our Random Forest Model is by far the best-performing model.
+
+We can now prepare our validation set by performing the same operations as we did on the training data: 
+
++ Remove and renaming columns to match our training set
++ Scale the Maternal Mortality Rate (divide by 10)
++ Run stochastic regression imputation for NA's
+
+```{r Prepare validation set, echo = FALSE}
+# Duplicate transfortmations on validation set
+# Remove columns 
+validation <- validation[, -c(2, 3, 5, 7, 9, 11)]
+# Rename columns
+names(validation) [2] <- "Score"
+names(validation)  [3] <- "EcoPart"
+names(validation)  [4] <- "Edu"
+names(validation)  [5] <- "Health"
+names(validation)  [6] <- "Poli"
+names(validation)  [7] <- "InfMortRt"
+names(validation)  [8] <- "LifExpBoth"
+names(validation)  [9] <- "LifExpFem"
+names(validation) [10] <- "LifExpMal"
+names(validation) [11] <- "MatMortRt"
+names(validation) [12] <- "PopIncRt"
+names(validation) [13] <- "TotFertRt"
+names(validation) [14] <- "RatGtBPrim"
+names(validation) [15] <- "RatGtBSec"
+names(validation) [16] <- "RatGtBTer"
+names(validation) [17] <- "WmnInParl"
+# Divide MatMortRt by 10
+test$MatMortRt <- test$MatMortRt/10
+# Stochastic regression imputation
+imp_validation <- mice(validation, method = "norm", m = 1) # Impute data
+validation <- complete(imp_validation) # Store data
+```
+
+
+
+```{r Validate Random Forest Model, echo = TRUE}
+# Random Forest Validation
+predicted_Score <- predict(fit_rtree2, validation)
+
+
+Final_RMSE_model_rtree2 <- RMSE(predicted_Score, validation$Score)
+
+# Save results in a tibble
+RMSE_results <- bind_rows(RMSE_results,
+                          tibble(Method = "Final Random Forest Model Validation",
+                          RMSE = Final_RMSE_model_rtree2))
+```
+
+## Model Performance
+
+Our Final Random Forest Model performed exceptionally well on the validation set with a Final RMSE of `r Final_RMSE_model_rtree2`.
+
+```{r Random Forest Model Performance, echo = FALSE}
+# Return Final RMSE results
+RMSE_results <- RMSE_results %>% mutate_if(is.numeric, ~ round(.,digits = 8))
+RMSE_results
+```
+
+Random forests are frequently used as "blackbox" models in data science, as they generate reasonable predictions across a wide range of data while requiring very little configuration. Our example was no exception.
+
+\newpage
+# Conclusion
+
+## Summary and Potential Impact
+
+We can see from the ranked variable importance extracted from our Final Random Forest Model that Political and Economic Participation, Educational Attainment, and various Health indicators are critical indicators for the Gender Gap Score. 
+
+As we noted ealy on, the high correlation between Total Fertility Rate with the Infant Mortality (0.907) and Maternal Mortatity (0.885) Rates could be an indication that countries with more access to family planning also have better outcomes for infants and their mothers.
+
+Through better understanding of the contributing factors of these elements, perhaps we can achieve parity sooner than the predicted 99.5 years.
+
+```{r Random Forest Model Summary, echo = FALSE}
+varImp(fit_rtree2)
+```
+
+## Limitations
+
+Restricted access to metadata and processing power limited further investigation into the changes over time for the relationships explored in this project.
+
+The small sample size also posed a challenge when selecting training and validation splits. Special care was taken to ensure large enough subsets to relect the general distribution of the dataset.
+
+Ideally, information for any specific year or range of years would be available to run deeper analysis on the correlations between Gender Gap, Women in Parliament and other Indicators.
+
+## Future Work
+
+The observations in this dataset lead to more questions about health outcomes for women and infants and how they relate to political empowerment and participation.
+
+Future studies would also involve a more rubust investigation in to the Gender Gap Index and how it relates to the Happiness Index, Gross Domestic Product (GDP) and Gini index (measure representing income inequality).
+
+Identifying the leading and lagging indicators over time would also be of particular interest.
+
+\newpage
+# References
+
+HDX. (2014–2019, November 14–10). The Global Gender Gap Index 2013 [Detailed rankings]. World Economic Forum. https://data.humdata.org/dataset/29f2f52f-a9c2-4ff9-a99e-42b894dc18e9/resource/a8fe8c72-1359-4ce3-b8cc-03d9e5e85875
+
+United Nations Statistics Division. (2019, September 20). Population growth, fertility, life expectancy and mortality [Trends in Maternal Mortality 1990 - 2015]. World Health Organization (WHO), the United Nations Children’s Fund (UNICEF), the United Nations Population Fund (UNFPA), the World Bank and the United Nations Population Division. https://data.un.org/
+
+United Nations Statistics Division. (2020a, September 5–November 5). Ratio of girls to boys in primary, secondary and tertiary levels [Dataset]. United Nations Educational, Scientific and Cultural Organization (UNESCO). https://data.un.org/
+
+United Nations Statistics Division. (2020b, September 5–November 5). Seats held by women in national parliament [Dataset]. Inter-Parliamentary Union (IPU). https://data.un.org/
